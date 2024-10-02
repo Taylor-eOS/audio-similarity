@@ -1,27 +1,25 @@
+import os
+import threading
 import tkinter as tk
 from tkinter import messagebox
 from pydub import AudioSegment
-import threading
-import pygame
-import os
 from io import BytesIO
+import pygame
+import time
 
 class LabelFile:
-    def __init__(self, master, audio_file, segment_duration=30, fine_tune_duration=2):
+    def __init__(self, master, audio_file, segment_duration=30):
         self.master = master
         self.master.title("Label File")
         self.audio_file = audio_file
         self.segment_duration_seconds = segment_duration
-        self.segment_duration = self.segment_duration_seconds * 1000
-        self.fine_tune_duration_seconds = fine_tune_duration
-        self.fine_tune_duration = self.fine_tune_duration_seconds * 1000
+        self.segment_duration = self.segment_duration_seconds * 1000  
         self.classifications = []
         self.transitions = []
-        self.ad_segments = []
+        self.ad_segments = []  
         self.current_ad = None
         self.current_segment = 0
         self.segments = []
-        self.fine_tune_segments = {}
         self.play_thread = None
         self.is_paused = False
         self.pause_event = threading.Event()
@@ -37,26 +35,10 @@ class LabelFile:
     def load_audio(self):
         try:
             self.audio = AudioSegment.from_mp3(self.audio_file)
-            self.total_duration = len(self.audio)
+            self.total_duration = len(self.audio)  
             self.total_segments = self.total_duration // self.segment_duration
             if self.total_duration % self.segment_duration > 0:
-                self.total_segments +=1
-
-            #Pre-process fine-tune segments (e.g., every 5 seconds)
-            fine_tune_interval = 5 * 1000
-            for start_ms in range(0, self.total_duration, fine_tune_interval):
-                end_ms = start_ms + self.fine_tune_duration
-                if end_ms > self.total_duration:
-                    end_ms = self.total_duration
-                segment = self.audio[start_ms:end_ms]
-                #Convert to WAV bytes in memory
-                wav_io = BytesIO()
-                segment.export(wav_io, format="wav")
-                wav_io.seek(0)
-                #Load into pygame Sound
-                sound = pygame.mixer.Sound(file=wav_io)
-                self.fine_tune_segments[start_ms // 1000] = sound  #Keyed by start time in seconds
-
+                self.total_segments += 1
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load audio file: {e}")
             self.master.destroy()
@@ -80,42 +62,46 @@ class LabelFile:
         self.content_button.pack(side=tk.LEFT, padx=10)
         self.pause_button.pack(side=tk.LEFT, padx=10)
         self.button_frame.pack(pady=20)
+        self.status_label.config(text="Press 'A' for Ad or 'C' for Content.")
 
     def play_segment(self, index):
         if index >= self.total_segments:
             self.finish_classification()
             return
-        self.status_label.config(text=f"Playing segment {index +1}/{self.total_segments}")
+
+        self.status_label.config(text=f"Playing segment {index + 1}/{self.total_segments}")
         segment = self.segments[index]
+
         if self.play_thread and self.play_thread.is_alive():
-            pygame.mixer.music.stop()
+            self.current_sound.stop()
             self.play_thread.join()
+
         self.play_thread = threading.Thread(target=self.play_audio, args=(segment,))
         self.play_thread.start()
 
     def play_audio(self, segment):
         try:
-            #Convert AudioSegment to WAV bytes in memory
             wav_io = BytesIO()
             segment.export(wav_io, format="wav")
             wav_io.seek(0)
-            pygame.mixer.music.load(wav_io)
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy():
+            self.current_sound = pygame.mixer.Sound(file=wav_io)
+            self.current_sound.play()
+            while pygame.mixer.get_busy():
                 if not self.pause_event.is_set():
-                    pygame.mixer.music.pause()
+                    self.current_sound.pause()
                     self.pause_event.wait()
-                    pygame.mixer.music.unpause()
+                    self.current_sound.unpause()
                 pygame.time.Clock().tick(10)
         except Exception as e:
             print(f"Error playing audio segment: {e}")
 
     def classify(self, classification):
         if self.play_thread and self.play_thread.is_alive():
-            pygame.mixer.music.stop()
+            self.current_sound.stop()
             self.play_thread.join()
+
         self.classifications.append(classification)
-        previous_class = self.classifications[-2] if len(self.classifications) >=2 else None
+        previous_class = self.classifications[-2] if len(self.classifications) >= 2 else None
 
         if previous_class and previous_class != classification:
             transition_time_low = (self.current_segment - 1) * self.segment_duration_seconds
@@ -130,113 +116,226 @@ class LabelFile:
             if previous_class == 'C' and classification == 'A':
                 self.current_ad = {
                     'start_time_low': transition_time_low,
-                    'start_time_high': transition_time_high
+                    'end_time_low': None  
                 }
             elif previous_class == 'A' and classification == 'C':
                 if self.current_ad is not None:
                     self.current_ad['end_time_low'] = transition_time_low
-                    self.current_ad['end_time_high'] = transition_time_high
                     self.ad_segments.append(self.current_ad)
                     self.current_ad = None
+
         if self.current_segment >= self.total_segments:
             if self.current_ad is not None:
                 self.current_ad['end_time_low'] = self.current_segment * self.segment_duration_seconds
-                self.current_ad['end_time_high'] = self.current_segment * self.segment_duration_seconds
                 self.ad_segments.append(self.current_ad)
                 self.current_ad = None
+            self.status_label.config(text="Initial classification complete. Starting precise timing...")
+            self.master.after(1000, self.precise_transition_step)  
+            return
+
         self.current_segment += 1
-        if self.current_segment < self.total_segments:
-            self.play_segment(self.current_segment)
-        else:
-            self.finish_classification()
+        self.play_segment(self.current_segment)
 
     def toggle_pause(self):
         if not self.is_paused:
             self.is_paused = True
             self.pause_event.clear()
             self.pause_button.config(text="Resume")
-            pygame.mixer.music.pause()
+            if self.current_sound:
+                self.current_sound.pause()
         else:
             self.is_paused = False
             self.pause_event.set()
             self.pause_button.config(text="Pause")
-            pygame.mixer.music.unpause()
+            if self.current_sound:
+                self.current_sound.unpause()
 
     def finish_classification(self):
-        self.status_label.config(text="Fine-tuning ad segments...")
-        self.master.update()
-        refined_ads = []
-        for ad in self.ad_segments:
-            #Fine-tune
-            refined_start = self.find_transition(ad['start_time_low'], ad['start_time_high'], from_type='C', to_type='A')
-            refined_end = self.find_transition(ad['end_time_low'], ad['end_time_high'], from_type='A', to_type='C')
-            refined_ads.append((refined_start, refined_end))
+
+        if not self.transitions:
+            messagebox.showinfo("Done", "No transitions detected. Classification complete.")
+            self.master.destroy()
+            return
+        self.status_label.config(text="Initial classification complete. Starting precise timing...")
+        self.master.after(1000, self.precise_transition_step)  
+
+    def precise_transition_step(self):
+
+        self.ad_button.config(state=tk.DISABLED)
+        self.content_button.config(state=tk.DISABLED)
+        self.pause_button.config(state=tk.DISABLED)
+
+        self.status_label.config(text="Starting precise transition timing...")
+        self.progress_label = tk.Label(self.master, text="", font=("Helvetica", 12))
+        self.progress_label.pack(pady=10)
+
+        self.precise_transitions = []  
+        self.current_precise_index = 0
+        self.total_precise = len(self.transitions)
+
+        threading.Thread(target=self.process_precise_transitions).start()
+
+    def process_precise_transitions(self):
+        for idx, transition in enumerate(self.transitions):
+            self.current_precise_index = idx + 1
+            self.update_progress_label(f"Processing transition {idx + 1}/{self.total_precise}")
+
+            if transition['from_type'] == 'C' and transition['to_type'] == 'A':
+
+                precise_start = self.capture_precise_time(transition['low'], is_start=True)
+                if precise_start is None:
+                    precise_start = transition['low']  
+
+                ad_segment = self.ad_segments[idx] if idx < len(self.ad_segments) else None
+                if ad_segment:
+                    ad_segment['start_precise'] = precise_start
+            elif transition['from_type'] == 'A' and transition['to_type'] == 'C':
+
+                precise_end = self.capture_precise_time(transition['low'], is_start=False)
+                if precise_end is None:
+                    precise_end = transition['low']  
+
+                ad_segment = self.ad_segments[idx - 1] if idx - 1 < len(self.ad_segments) else None
+                if ad_segment:
+                    ad_segment['end_precise'] = precise_end
+
+        self.save_ad_segments()
+        self.update_progress_label("Precise transition timing complete.")
+        messagebox.showinfo("Done", "Precise transition timing complete. Ad segments saved to ad_segments.txt.")
+        self.master.destroy()
+
+    def capture_precise_time(self, transition_time_low, is_start=True):
+        event = threading.Event()
+        precise_time = None
+
+        def on_keypress(event_obj):
+            nonlocal precise_time
+            elapsed = time.time() - playback_start_time
+            total_seconds = transition_time_low + elapsed
+            total_seconds = int(round(total_seconds))  
+            precise_time = total_seconds
+            event.set()
+
+        self.master.bind('<space>', on_keypress)
+
+        pre_transition_segment_index = int(transition_time_low // self.segment_duration_seconds)
+        if pre_transition_segment_index >= self.total_segments:
+            pre_transition_segment_index = self.total_segments - 1
+        pre_transition_segment = self.segments[pre_transition_segment_index]
+        pre_transition_start_time = pre_transition_segment_index * self.segment_duration_seconds
+
+        playback_start_time = time.time()
+        def play_segment_thread():
+            try:
+                wav_io = BytesIO()
+                pre_transition_segment.export(wav_io, format="wav")
+                wav_io.seek(0)
+                sound = pygame.mixer.Sound(file=wav_io)
+                sound.play()
+                while pygame.mixer.get_busy():
+                    if not self.pause_event.is_set():
+                        sound.pause()
+                        self.pause_event.wait()
+                        sound.unpause()
+                    pygame.time.Clock().tick(10)
+            except Exception as e:
+                print(f"Error playing audio segment: {e}")
+
+        play_thread = threading.Thread(target=play_segment_thread)
+        play_thread.start()
+
+        wait_time = self.segment_duration_seconds
+        event_occurred = event.wait(timeout=wait_time)
+
+        pygame.mixer.stop()
+        play_thread.join()
+
+        self.master.unbind('<space>')
+
+        if event_occurred:
+            return precise_time
+        else:
+
+            post_transition_segment_index = pre_transition_segment_index + 1
+            if post_transition_segment_index >= self.total_segments:
+                post_transition_segment_index = self.total_segments - 1
+            post_transition_segment = self.segments[post_transition_segment_index]
+            post_transition_start_time = post_transition_segment_index * self.segment_duration_seconds
+
+            precise_time_post = None
+
+            def on_keypress_post(event_obj):
+                nonlocal precise_time_post
+                elapsed_post = time.time() - playback_start_time_post
+                total_seconds_post = post_transition_start_time + elapsed_post
+                total_seconds_post = int(round(total_seconds_post))  
+                precise_time_post = total_seconds_post
+                event.set()
+
+            self.master.bind('<space>', on_keypress_post)
+
+            playback_start_time_post = time.time()
+            def play_post_segment_thread():
+                try:
+                    wav_io = BytesIO()
+                    post_transition_segment.export(wav_io, format="wav")
+                    wav_io.seek(0)
+                    sound_post = pygame.mixer.Sound(file=wav_io)
+                    sound_post.play()
+                    while pygame.mixer.get_busy():
+                        if not self.pause_event.is_set():
+                            sound_post.pause()
+                            self.pause_event.wait()
+                            sound_post.unpause()
+                        pygame.time.Clock().tick(10)
+                except Exception as e:
+                    print(f"Error playing audio segment: {e}")
+
+            play_post_thread = threading.Thread(target=play_post_segment_thread)
+            play_post_thread.start()
+
+            event_occurred_post = event.wait(timeout=self.segment_duration_seconds)
+
+            pygame.mixer.stop()
+            play_post_thread.join()
+
+            self.master.unbind('<space>')
+
+            if event_occurred_post:
+                return precise_time_post
+            else:
+
+                return transition_time_low
+
+    def update_progress_label(self, text):
+        self.progress_label.config(text=text)
+
+    def save_ad_segments(self):
+        if not self.ad_segments:
+            messagebox.showinfo("Done", "No ads detected. Classification complete.")
+            self.master.destroy()
+            return
+
         formatted_ad_segments = []
-        for start, end in refined_ads:
-            formatted_ad_segments.append(f"{self.format_time(start)}-{self.format_time(end)}")
+        for segment in self.ad_segments:
+            start = segment.get('start_precise') or segment['start_time_low']
+            end = segment.get('end_precise') or segment['end_time_low']
+
+            start_formatted = self.format_time(start)
+            end_formatted = self.format_time(end)
+            formatted_ad_segments.append(f"{start_formatted}-{end_formatted}")
+
         try:
             with open("ad_segments.txt", "w") as f:
-                f.write(f"[{audio_file}]\n")
+                filename_without_ext = os.path.splitext(self.audio_file)[0]
+                f.write(f"[{filename_without_ext}]\n")
                 for segment in formatted_ad_segments:
                     f.write(f"{segment}\n")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to write ad segments: {e}")
+            return
+
         self.status_label.config(text="Classification complete. Ad segments saved.")
-        messagebox.showinfo("Done", "Classification complete. Ad segments saved to ad_segments.txt.")
-        self.master.destroy()
-
-    def find_transition(self, low, high, from_type, to_type, threshold=1):
-        while high - low > threshold:
-            mid = (low + high) / 2
-            cls = self.ask_user_for_fine_tune(mid)
-            if cls == from_type:
-                low = mid
-            else:
-                high = mid
-        return high
-
-    def ask_user_for_fine_tune(self, start_time):
-        response = []
-        def on_ad():
-            response.append("A")
-            window.destroy()
-        def on_content():
-            response.append("C")
-            window.destroy()
-        window = tk.Toplevel(self.master)
-        window.title("Fine-Tuning")
-        tk.Label(window, text=f"Classify segment at {self.format_time(start_time)}").pack(pady=20)
-        btn_frame = tk.Frame(window)
-        tk.Button(btn_frame, text="A", width=10, command=on_ad).pack(side=tk.LEFT, padx=10)
-        tk.Button(btn_frame, text="C", width=10, command=on_content).pack(side=tk.LEFT, padx=10)
-        btn_frame.pack(pady=20)
-
-        seg_start_sec = int(start_time)
-        sound = self.fine_tune_segments.get(seg_start_sec)
-        if sound:
-            sound.play()
-        else:
-            threading.Thread(target=self.play_fine_tune_audio, args=(start_time, self.fine_tune_duration_seconds)).start()
-
-        self.master.wait_window(window)
-        return response[0] if response else "C"
-
-    def play_fine_tune_audio(self, seg_start, seg_duration):
-        try:
-            start_ms = int(seg_start * 1000)
-            end_ms = start_ms + int(seg_duration * 1000)
-            if end_ms > self.total_duration:
-                end_ms = self.total_duration
-            segment = self.audio[start_ms:end_ms]
-            wav_io = BytesIO()
-            segment.export(wav_io, format="wav")
-            wav_io.seek(0)
-            sound = pygame.mixer.Sound(file=wav_io)
-            sound.play()
-            while pygame.mixer.get_busy():
-                pygame.time.Clock().tick(10)
-        except Exception as e:
-            print(f"Error playing fine-tune audio: {e}")
 
     def format_time(self, seconds):
         minutes = int(seconds) // 60
@@ -255,4 +354,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
