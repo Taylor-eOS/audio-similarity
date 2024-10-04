@@ -50,7 +50,7 @@ class LabelLogic:
         self.pause_button.pack(side=tk.LEFT, padx=10)
         self.button_frame.pack(pady=20)
         total_formatted = self.format_time(self.total_duration)
-        #self.end_time_label.config(text=f"Total Duration: {total_formatted}")
+        self.end_time_label.config(text=f"Common times: 2-13, 19-23, 29-39, 47-50")
         self.status_label.config(text="Press 'A' for Ad, 'C' for Content.")
 
     def load_initial_segments(self):
@@ -68,8 +68,9 @@ class LabelLogic:
             self.finish_classification()
             return
         self.current_segment = self.queue.pop(0)
+        total_formatted = self.format_time(self.total_duration)
         self.status_label.config(
-            text=f"Playing segment {self.format_time(self.current_segment['start'])} - {self.format_time(self.current_segment['end'])}"
+            text=f"Playing segment {self.format_time(self.current_segment['start'])} of {total_formatted}"
         )
         segment = self.audio[self.current_segment['start'] * 1000 : self.current_segment['end'] * 1000]
         if self.play_thread and self.play_thread.is_alive():
@@ -136,15 +137,14 @@ class LabelLogic:
         merged_classifications.append(current)
         adjusted_classifications = self.adjust_single_segments(merged_classifications)
         adjusted_classifications = self.refine_transitions(adjusted_classifications)
-        # Ensure that classifications are sorted and non-overlapping
         adjusted_classifications = sorted(adjusted_classifications, key=lambda x: x['start'])
         non_overlapping = []
         prev_end = 0
         for seg in adjusted_classifications:
             if seg['start'] < prev_end:
-                seg['start'] = prev_end  # Adjust start to prevent overlap
+                seg['start'] = prev_end
             if seg['end'] <= seg['start']:
-                continue  # Skip invalid segments
+                continue
             non_overlapping.append(seg)
             prev_end = seg['end']
         self.save_ad_segments(non_overlapping)
@@ -189,7 +189,6 @@ class LabelLogic:
                 selected_time.set(float(value))
             def set_transition():
                 new_trans = start_time + selected_time.get()
-                # Ensure new_trans does not overlap
                 if new_trans < classifications[idx]['start']:
                     new_trans = classifications[idx]['start']
                 elif new_trans > classifications[idx]['end']:
@@ -228,9 +227,7 @@ class LabelLogic:
         if not ad_segments:
             messagebox.showinfo("Done", "No ads detected. Classification complete.")
             return
-        # Sort ad_segments by start time
         ad_segments = sorted(ad_segments, key=lambda x: x['start'])
-        # Merge any overlapping ad_segments
         merged_ad_segments = []
         current = ad_segments[0].copy()
         for seg in ad_segments[1:]:
@@ -240,7 +237,6 @@ class LabelLogic:
                 merged_ad_segments.append(current)
                 current = seg.copy()
         merged_ad_segments.append(current)
-        
         formatted_ad_segments = []
         for segment in merged_ad_segments:
             start = segment['start']
@@ -249,7 +245,7 @@ class LabelLogic:
             end_formatted = self.format_time(end)
             formatted_ad_segments.append(f"{start_formatted}-{end_formatted}")
         try:
-            with open("segments.txt", "w") as f:
+            with open("ad_segments.txt", "w") as f:
                 filename_without_ext = os.path.splitext(self.audio_file)[0]
                 f.write(f"[{filename_without_ext}]\n")
                 for segment in formatted_ad_segments:
@@ -263,10 +259,10 @@ class LabelLogic:
         return f"{minutes}:{secs:02d}"
 
 def main():
-    file_name = input("Enter the audio file name (without extension): ")
+    file_name = input("Audio file name: ")
     audio_file = f"{file_name}.mp3"
     if not os.path.exists(audio_file):
-        print(f"Error: Audio file '{audio_file}' not found. Please ensure it's in the current directory.")
+        print(f"Error: Audio file not found. Enter without extension.")
         return
     root = tk.Tk()
     app = LabelLogic(root, audio_file)
