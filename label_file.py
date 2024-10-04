@@ -44,13 +44,13 @@ class LabelLogic:
         self.button_frame = tk.Frame(self.master)
         self.ad_button = tk.Button(self.button_frame, text="Ad", width=10, command=lambda: self.classify("A"))
         self.content_button = tk.Button(self.button_frame, text="Content", width=10, command=lambda: self.classify("C"))
-        self.pause_button = tk.Button(self.button_frame, text="Pause", width=10, command=self.toggle_pause)
+        #self.pause_button = tk.Button(self.button_frame, text="Pause", width=10, command=self.toggle_pause)
         self.ad_button.pack(side=tk.LEFT, padx=10)
         self.content_button.pack(side=tk.LEFT, padx=10)
-        self.pause_button.pack(side=tk.LEFT, padx=10)
+        #self.pause_button.pack(side=tk.LEFT, padx=10)
         self.button_frame.pack(pady=20)
         total_formatted = self.format_time(self.total_duration)
-        self.end_time_label.config(text=f"Common times: 2-13, 19-23, 29-39, 47-50")
+        self.end_time_label.config(text=f"Common times: 2:33, 13:52, 19:42, 23:41, 29:34, 39:27, 47:08, 50:18")
         self.status_label.config(text="Press 'A' for Ad, 'C' for Content.")
 
     def load_initial_segments(self):
@@ -123,7 +123,7 @@ class LabelLogic:
     def finish_classification(self):
         if not self.classifications:
             self.save_ad_segments([])
-            messagebox.showinfo("Done", "No segments classified. Classification complete.")
+            messagebox.showinfo("Done", "No segments classified")
             self.master.destroy()
             return
         merged_classifications = []
@@ -183,10 +183,12 @@ class LabelLogic:
             pygame.mixer.music.load(wav_io)
             pygame.mixer.music.play()
             selected_time = tk.DoubleVar()
+
             def play_selected(value):
                 pygame.mixer.music.stop()
                 pygame.mixer.music.play(start=float(value))
                 selected_time.set(float(value))
+
             def set_transition():
                 new_trans = start_time + selected_time.get()
                 if new_trans < classifications[idx]['start']:
@@ -196,26 +198,29 @@ class LabelLogic:
                 classifications[idx]['end'] = new_trans
                 classifications[idx + 1]['start'] = new_trans
                 window.destroy()
-            seek_scale = tk.Scale(
-                window, 
-                from_=0, 
-                to=60, 
-                resolution=0.1, 
-                orient=tk.HORIZONTAL, 
-                variable=selected_time, 
-                label="Adjust Transition (seconds)", 
-                length=800, 
-                command=play_selected
-            )
-            seek_scale.pack(padx=20, pady=20)
+                
+            def draw_custom_slider(canvas, value):
+                canvas.delete("slider")
+                width = canvas.winfo_width()
+                x_pos = (value / 60) * width
+                canvas.create_line(x_pos, 0, x_pos, 30, fill="black", width=2, tags="slider")
+
             def on_click(event):
                 widget = event.widget
                 click_x = event.x
                 width = widget.winfo_width()
                 value = (click_x / width) * 60
                 selected_time.set(value)
+                draw_custom_slider(widget, value)
                 play_selected(value)
-            seek_scale.bind("<Button-1>", on_click)
+
+            def on_drag(event):
+                on_click(event)
+            canvas = tk.Canvas(window, width=800, height=30, bg="lightgray")
+            canvas.pack(padx=20, pady=20)
+            draw_custom_slider(canvas, selected_time.get())
+            canvas.bind("<Button-1>", on_click)
+            canvas.bind("<B1-Motion>", on_drag)
             confirm_button = tk.Button(window, text="Set Transition", command=set_transition)
             confirm_button.pack(pady=10)
             window.grab_set()
