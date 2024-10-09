@@ -265,7 +265,7 @@ class LabelLogic:
 
 def main():
     file_name = input("Audio file name: ")
-    audio_file = f"input/{file_name}.mp3"
+    audio_file = f"{file_name}.mp3"
     if not os.path.exists(audio_file):
         print(f"Error: Audio file not found. Enter without extension.")
         return
