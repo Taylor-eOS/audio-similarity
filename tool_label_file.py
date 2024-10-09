@@ -26,7 +26,7 @@ class LabelLogic:
         self.load_initial_segments()
         self.process_next_segment()
         self.master.bind('<a>', lambda event: self.classify("A"))
-        self.master.bind('<c>', lambda event: self.classify("C"))
+        self.master.bind('<b>', lambda event: self.classify("B"))
 
     def load_audio(self):
         try:
@@ -43,15 +43,15 @@ class LabelLogic:
         self.end_time_label.pack(pady=5)
         self.button_frame = tk.Frame(self.master)
         self.ad_button = tk.Button(self.button_frame, text="Ad", width=10, command=lambda: self.classify("A"))
-        self.content_button = tk.Button(self.button_frame, text="Content", width=10, command=lambda: self.classify("C"))
+        self.content_button = tk.Button(self.button_frame, text="Broadcast", width=10, command=lambda: self.classify("B"))
         #self.pause_button = tk.Button(self.button_frame, text="Pause", width=10, command=self.toggle_pause)
         self.ad_button.pack(side=tk.LEFT, padx=10)
         self.content_button.pack(side=tk.LEFT, padx=10)
         #self.pause_button.pack(side=tk.LEFT, padx=10)
         self.button_frame.pack(pady=20)
         total_formatted = self.format_time(self.total_duration)
-        self.end_time_label.config(text=f"Common times: 2:33, 13:52, 19:42, 23:41, 29:34, 39:27, 47:08, 50:18")
-        self.status_label.config(text="Press 'A' for Ad, 'C' for Content.")
+        self.end_time_label.config(text=f"-2, 13-19, 23-29, 39-47, 50-")
+        self.status_label.config(text="Press 'A' for Ad, 'B' for Broadcast.")
 
     def load_initial_segments(self):
         num_segments = self.total_duration // self.segment_duration
@@ -265,7 +265,7 @@ class LabelLogic:
 
 def main():
     file_name = input("Audio file name: ")
-    audio_file = f"{file_name}.mp3"
+    audio_file = f"input/{file_name}.mp3"
     if not os.path.exists(audio_file):
         print(f"Error: Audio file not found. Enter without extension.")
         return
