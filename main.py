@@ -17,7 +17,7 @@ def train():
     all_features = []
     all_labels = []
     for audio_file in os.listdir(input_dir):
-        if not audio_file.endswith('.mp3'):
+        if not audio_file.endswith('.wav'):
             continue
         basename = os.path.splitext(audio_file)[0]
         audio_path = os.path.join(input_dir, audio_file)
@@ -32,7 +32,7 @@ def train():
         all_features.append(features)
         all_labels.append(labels)
     if not all_features:
-        print("No mp3 files found in the input directory")
+        print("No wav files found in the input directory")
         return
     combined_features = np.concatenate(all_features, axis=0)
     combined_labels = np.concatenate(all_labels, axis=0)
