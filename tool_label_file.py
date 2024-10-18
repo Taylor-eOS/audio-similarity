@@ -13,7 +13,7 @@ class LabelLogic:
         self.audio_file = audio_file
         self.segment_duration = segment_duration
         self.classifications = []
-        self.ad_segments = []
+        self.a_segments = []
         self.queue = []
         self.current_segment = None
         self.play_thread = None
@@ -50,7 +50,7 @@ class LabelLogic:
         #self.pause_button.pack(side=tk.LEFT, padx=10)
         self.button_frame.pack(pady=20)
         total_formatted = self.format_time(self.total_duration)
-        self.end_time_label.config(text=f"-2, 13-19, 23-29, 39-47, 50-")
+        #self.end_time_label.config(text=f"-2, 13-19, 23-29, 39-47, 50-")
         self.status_label.config(text="Press 'A' for Ad, 'B' for Broadcast.")
 
     def load_initial_segments(self):
@@ -122,7 +122,7 @@ class LabelLogic:
 
     def finish_classification(self):
         if not self.classifications:
-            self.save_ad_segments([])
+            self.save_a_segments([])
             messagebox.showinfo("Done", "No segments classified")
             self.master.destroy()
             return
@@ -147,7 +147,7 @@ class LabelLogic:
                 continue
             non_overlapping.append(seg)
             prev_end = seg['end']
-        self.save_ad_segments(non_overlapping)
+        self.save_a_segments(non_overlapping)
         messagebox.showinfo("Done", "Classification complete")
         self.master.destroy()
 
@@ -227,48 +227,49 @@ class LabelLogic:
             self.master.wait_window(window)
         return classifications
 
-    def save_ad_segments(self, classifications):
-        ad_segments = [seg for seg in classifications if seg['label'] == "A"]
-        if not ad_segments:
+    def save_a_segments(self, classifications):
+        a_segments = [seg for seg in classifications if seg['label'] == "A"]
+        if not a_segments:
             messagebox.showinfo("Done", "No ads detected. Classification complete.")
             return
-        ad_segments = sorted(ad_segments, key=lambda x: x['start'])
-        merged_ad_segments = []
-        current = ad_segments[0].copy()
-        for seg in ad_segments[1:]:
+        a_segments = sorted(a_segments, key=lambda x: x['start'])
+        merged_a_segments = []
+        current = a_segments[0].copy()
+        for seg in a_segments[1:]:
             if seg['start'] <= current['end']:
                 current['end'] = max(current['end'], seg['end'])
             else:
-                merged_ad_segments.append(current)
+                merged_a_segments.append(current)
                 current = seg.copy()
-        merged_ad_segments.append(current)
-        formatted_ad_segments = []
-        for segment in merged_ad_segments:
+        merged_a_segments.append(current)
+        formatted_a_segments = []
+        for segment in merged_a_segments:
             start = segment['start']
             end = segment['end']
             start_formatted = self.format_time(start)
             end_formatted = self.format_time(end)
-            formatted_ad_segments.append(f"{start_formatted}-{end_formatted}")
+            formatted_a_segments.append(f"{start_formatted}-{end_formatted}")
         try:
-            with open("ad_segments.txt", "w") as f:
+            with open("a_segments.txt", "w") as f:
                 filename_without_ext = os.path.splitext(self.audio_file)[0]
                 f.write(f"[{filename_without_ext}]\n")
-                for segment in formatted_ad_segments:
+                for segment in formatted_a_segments:
                     f.write(f"{segment}\n")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to write ad segments: {e}")
-
+            messagebox.showerror("Error", f"Failed to write A segments: {e}")
     def format_time(self, seconds):
         minutes = int(seconds) // 60
         secs = int(seconds) % 60
         return f"{minutes}:{secs:02d}"
 
 def main():
-    file_name = input("Audio file name: ")
-    audio_file = f"{file_name}.mp3"
+    basename = input("Audio file name: ")
+    audio_file = f"{basename}.mp3"
     if not os.path.exists(audio_file):
-        print(f"Error: Audio file not found. Enter without extension.")
-        return
+        audio_file = f"{basename}.wav"
+        if not os.path.exists(audio_file):
+            print(f"Error: Audio file not found. Enter wav or mp3 basename.")
+            return
     root = tk.Tk()
     app = LabelLogic(root, audio_file)
     root.mainloop()
